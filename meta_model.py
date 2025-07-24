@@ -13,6 +13,7 @@ import numpy as np
 from sklearn.metrics import roc_auc_score
 from torch.nn.utils.convert_parameters import (vector_to_parameters,
                                                parameters_to_vector)
+import pandas as pd
 
 class attention(nn.Module):
     def __init__(self, dim):
@@ -158,8 +159,8 @@ class Meta_model(nn.Module):
         # for task in tasks_list:
             dataset = MoleculeDataset("Original_datasets/" + self.dataset + "/new/" + str(task+1), dataset = self.dataset)
             support_dataset, query_dataset = sample_datasets(dataset, self.dataset, task, self.n_way, self.m_support, self.k_query)
-            support_loader = DataLoader(support_dataset, batch_size=self.batch_size, shuffle=False, num_workers = 1)
-            query_loader = DataLoader(query_dataset, batch_size=self.batch_size, shuffle=False, num_workers = 1)
+            support_loader = DataLoader(support_dataset, batch_size=self.batch_size, shuffle=False, num_workers = 0)
+            query_loader = DataLoader(query_dataset, batch_size=self.batch_size, shuffle=False, num_workers = 0)
             support_loaders.append(support_loader)
             query_loaders.append(query_loader)
 
@@ -295,15 +296,15 @@ class Meta_model(nn.Module):
         
         return []
 
-    def test(self, support_grads):
+    def test(self):
         accs = []
         old_params = parameters_to_vector(self.graph_model.parameters())
         for task in range(self.num_test_tasks):
             print(self.num_tasks-task)
             dataset = MoleculeDataset("Original_datasets/" + self.dataset + "/new/" + str(self.num_tasks-task), dataset = self.dataset)
             support_dataset, query_dataset = sample_test_datasets(dataset, self.dataset, self.num_tasks-task-1, self.n_way, self.m_support, self.k_query)
-            support_loader = DataLoader(support_dataset, batch_size=self.batch_size, shuffle=False, num_workers = 1)
-            query_loader = DataLoader(query_dataset, batch_size=self.batch_size, shuffle=False, num_workers = 1)
+            support_loader = DataLoader(support_dataset, batch_size=self.batch_size, shuffle=False, num_workers = 4)
+            query_loader = DataLoader(query_dataset, batch_size=self.batch_size, shuffle=False, num_workers = 4)
 
             device = torch.device("cuda:" + str(self.device)) if torch.cuda.is_available() else torch.device("cpu")
 
@@ -346,12 +347,14 @@ class Meta_model(nn.Module):
 
             y_true = []
             y_scores = []
+            probabilities = []
             for step, batch in enumerate(tqdm(query_loader, desc="Iteration")):
                 batch = batch.to(device)
 
                 pred, node_emb = self.graph_model(batch.x, batch.edge_index, batch.edge_attr, batch.batch)
                 # print(pred)
                 pred = F.sigmoid(pred)
+                probabilities.append(pred)
                 pred = torch.where(pred>0.5, torch.ones_like(pred), pred)
                 pred = torch.where(pred<=0.5, torch.zeros_like(pred), pred)
                 y_scores.append(pred)
@@ -360,7 +363,16 @@ class Meta_model(nn.Module):
 
             y_true = torch.cat(y_true, dim = 0).cpu().detach().numpy()
             y_scores = torch.cat(y_scores, dim = 0).cpu().detach().numpy()
-           
+            probabilities = torch.cat(probabilities, dim = 0).cpu().detach().numpy()
+
+            # Save probabilities and labels to CSV using pandas
+            df = pd.DataFrame({
+                "probability": probabilities.flatten(),
+                "label": y_true.flatten()
+            })
+            csv_filename = f"probabilities_task_{task}.csv"
+            df.to_csv(csv_filename, index=False)
+
             roc_list = []
             roc_list.append(roc_auc_score(y_true, y_scores))
             acc = sum(roc_list)/len(roc_list)
