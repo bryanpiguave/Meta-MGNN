@@ -65,6 +65,11 @@ def main(dataset, input_model_file, gnn_type, add_similarity, add_selfsupervise,
     parser.add_argument('--interact', type=bool, default=False)
     parser.add_argument('--add_weight', type=float, default=0.1)
     
+
+    # Output settings
+    parser.add_argument('--output_dir', type=str, default="results_Tox21", help = "output directory")
+
+
     args = parser.parse_args()
 
     args.dataset = dataset
@@ -104,16 +109,28 @@ def main(dataset, input_model_file, gnn_type, add_similarity, add_selfsupervise,
         support_grads = model(epoch)
 
         if epoch % 1 == 0:
-            accs = model.test(support_grads)
+            accs = model.test()
 
             if best_accs != []:
                 for acc_num in range(len(best_accs)):
                     if best_accs[acc_num] < accs[acc_num]:
                         best_accs[acc_num] = accs[acc_num]
+                        # Save the model when a new best is found
+                        if not os.path.exists(args.output_dir):
+                            os.makedirs(args.output_dir)
+                        gnn_state_dict = model.graph_model.gnn.state_dict()
+                        torch.save(model.state_dict(), f"{args.output_dir}/{args.dataset}_{args.gnn_type}_{args.m_support}_best.pth")
+                        torch.save(gnn_state_dict, f"{args.output_dir}/{args.dataset}_{args.gnn_type}_{args.m_support}_best_gnn.pth")
             else:
                 best_accs = accs
+                # Save the model for the first time
+                if not os.path.exists(args.output_dir):
+                    os.makedirs(args.output_dir)
+                torch.save(model.state_dict(), f"{args.output_dir}/{args.dataset}_{args.gnn_type}_{args.m_support}_best.pth")
+                gnn_state_dict = model.graph_model.gnn.state_dict()
+                torch.save(gnn_state_dict, f"{args.output_dir}/{args.dataset}_{args.gnn_type}_{args.m_support}_best_gnn.pth")
 
-            fw = open("result/" + args.dataset + "_" + args.gnn_type + "_" + str(args.m_support) + "_" + str(args.add_similarity) + "_" + str(args.add_selfsupervise) + "_" + str(args.add_masking) + "_" + str(args.add_weight) + "_" + str(args.update_step) + ".txt", "a")
+            fw = open(args.output_dir + "/" + args.dataset + "_" + args.gnn_type + "_" + str(args.m_support) + "_" + str(args.add_similarity) + "_" + str(args.add_selfsupervise) + "_" + str(args.add_masking) + "_" + str(args.add_weight) + "_" + str(args.update_step) + ".txt", "a")
             fw.write("test: " + "\t")
             for i in accs:
                 fw.write(str(i) + "\t")
@@ -127,4 +144,4 @@ def main(dataset, input_model_file, gnn_type, add_similarity, add_selfsupervise,
 
 if __name__ == "__main__":
     # dataset, pretrained_model, graph_model, taskaware_attention, edge_pred, atom_pred, weight, #support 
-    main("sider", "model_gin/supervised_contextpred.pth", "gin", True, True, True, 0.1, 5)
+    main("tox21", "model_gin/supervised_contextpred.pth", "gin", True, True, True, 0.1, 5)
